@@ -98,7 +98,7 @@ func (r *RunnerPodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 
-	ghc, err := r.GitHubClient.InitForRunnerPod(ctx, &runnerPod)
+	ghc, err := r.GitHubClient.InitForRunnerPod(ctx, &runnerPod, org)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -185,7 +185,7 @@ func (r *RunnerPodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 			log.V(2).Info("Removed finalizer")
 
-			r.GitHubClient.DeinitForRunnerPod(updatedPod)
+			r.GitHubClient.DeinitForRunnerPod(updatedPod, org)
 
 			return ctrl.Result{}, nil
 		}

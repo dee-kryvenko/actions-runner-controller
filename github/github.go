@@ -59,58 +59,31 @@ func (p BasicAuthTransport) RoundTrip(req *http.Request) (*http.Response, error)
 type UnknownInstallationAppTransport struct {
 	AppsTransport *ghinstallation.AppsTransport
 	AppClient     *Client
-	Transports    map[string]*ghinstallation.Transport
+	Owner         string
+	Transport     *ghinstallation.Transport
 	mu            sync.Mutex
 }
 
-// RoundTrip tries to guess owner from the request
-// When it can't determine the owner - it falls back to ghinstallation.AppsTransport
-// If it finds a known pattern - it stores a new ghinstallation.Transport for it and uses it going forward for that owner
 func (t *UnknownInstallationAppTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	path := req.URL.Path
-
-	var owner string
-	if strings.HasPrefix(path, "/orgs/") {
-		owner = strings.Split(strings.TrimPrefix(path, "/orgs/"), "/")[0]
-	} else if strings.HasPrefix(path, "/repos/") {
-		owner = strings.Split(strings.TrimPrefix(path, "/repos/"), "/")[0]
-	} else if strings.HasPrefix(path, "/networks/") {
-		owner = strings.Split(strings.TrimPrefix(path, "/networks/"), "/")[0]
-	} else if strings.HasPrefix(path, "/users/") {
-		owner = strings.Split(strings.TrimPrefix(path, "/users/"), "/")[0]
-	} else if strings.HasPrefix(path, "/organizations/") {
-		owner = strings.Split(strings.TrimPrefix(path, "/organizations/"), "/")[0]
-	}
-
-	if len(owner) == 0 {
-		return t.AppsTransport.RoundTrip(req)
-	}
-
-	if tr, ok := t.Transports[owner]; ok {
-		return tr.RoundTrip(req)
+	if t.Transport != nil {
+		return t.Transport.RoundTrip(req)
 	}
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	id, err := t.FindInstallationID(req.Context(), owner)
+	id, err := t.FindInstallationID(req.Context(), t.Owner)
 	if err != nil {
 		return nil, err
 	}
-	t.Transports[owner] = ghinstallation.NewFromAppsTransport(t.AppsTransport, id)
-	t.Transports[owner].BaseURL = t.AppsTransport.BaseURL
+	t.Transport = ghinstallation.NewFromAppsTransport(t.AppsTransport, id)
+	t.Transport.BaseURL = t.AppsTransport.BaseURL
 
-	return t.Transports[owner].RoundTrip(req)
+	return t.Transport.RoundTrip(req)
 }
 
 // NewAppClient creates a Github Client on behalf of the App
-func (c *Config) NewAppClient() (*Client, error) {
-	if len(c.BasicauthUsername) > 0 && len(c.BasicauthPassword) > 0 {
-		return nil, nil
-	} else if len(c.Token) > 0 {
-		return nil, nil
-	}
-
+func (c *Config) NewAppClient(owner string) (*Client, error) {
 	var tr *ghinstallation.AppsTransport
 
 	if _, err := os.Stat(c.AppPrivateKey); err == nil {
@@ -141,6 +114,7 @@ func (c *Config) NewAppClient() (*Client, error) {
 	return c.createGitHubClient(&UnknownInstallationAppTransport{
 		AppsTransport: tr,
 		AppClient:     appClient,
+		Owner:         owner,
 	})
 }
 

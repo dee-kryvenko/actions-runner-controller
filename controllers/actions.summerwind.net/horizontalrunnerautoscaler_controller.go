@@ -41,7 +41,8 @@ import (
 )
 
 const (
-	DefaultScaleDownDelay = 10 * time.Minute
+	DefaultScaleDownDelay                   = 10 * time.Minute
+	annotationKeyGitHubAppInstallationOwner = annotationKeyPrefix + "github-app-installation-owner"
 )
 
 // HorizontalRunnerAutoscalerReconciler reconciles a HorizontalRunnerAutoscaler object
@@ -72,7 +73,7 @@ func (r *HorizontalRunnerAutoscalerReconciler) Reconcile(ctx context.Context, re
 	}
 
 	if !hra.ObjectMeta.DeletionTimestamp.IsZero() {
-		r.GitHubClient.DeinitForHRA(&hra)
+		r.GitHubClient.DeinitForHRA(&hra, hra.Annotations[annotationKeyGitHubAppInstallationOwner])
 
 		return ctrl.Result{}, nil
 	}
@@ -311,7 +312,7 @@ func (r *HorizontalRunnerAutoscalerReconciler) reconcile(ctx context.Context, re
 		return ctrl.Result{}, err
 	}
 
-	ghc, err := r.GitHubClient.InitForHRA(context.Background(), &hra)
+	ghc, err := r.GitHubClient.InitForHRA(context.Background(), &hra, st.org)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -330,6 +331,8 @@ func (r *HorizontalRunnerAutoscalerReconciler) reconcile(ctx context.Context, re
 	}
 
 	updated := hra.DeepCopy()
+
+	updated.Annotations[annotationKeyGitHubAppInstallationOwner] = st.org
 
 	if hra.Status.DesiredReplicas == nil || *hra.Status.DesiredReplicas != newDesiredReplicas {
 		if (hra.Status.DesiredReplicas == nil && newDesiredReplicas > 1) ||
