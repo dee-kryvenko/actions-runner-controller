@@ -56,34 +56,8 @@ func (p BasicAuthTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	return http.DefaultTransport.RoundTrip(req)
 }
 
-type UnknownInstallationAppTransport struct {
-	AppsTransport *ghinstallation.AppsTransport
-	AppClient     *Client
-	Owner         string
-	Transport     *ghinstallation.Transport
-	mu            sync.Mutex
-}
-
-func (t *UnknownInstallationAppTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if t.Transport != nil {
-		return t.Transport.RoundTrip(req)
-	}
-
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	id, err := t.FindInstallationID(req.Context(), t.Owner)
-	if err != nil {
-		return nil, err
-	}
-	t.Transport = ghinstallation.NewFromAppsTransport(t.AppsTransport, id)
-	t.Transport.BaseURL = t.AppsTransport.BaseURL
-
-	return t.Transport.RoundTrip(req)
-}
-
 // NewAppClient creates a Github Client on behalf of the App
-func (c *Config) NewAppClient(owner string) (*Client, error) {
+func (c *Config) NewAppClient() (*Client, error) {
 	var tr *ghinstallation.AppsTransport
 
 	if _, err := os.Stat(c.AppPrivateKey); err == nil {
@@ -106,16 +80,7 @@ func (c *Config) NewAppClient(owner string) (*Client, error) {
 		tr.BaseURL = githubAPIURL
 	}
 
-	appClient, err := c.createGitHubClient(tr)
-	if err != nil {
-		return nil, err
-	}
-
-	return c.createGitHubClient(&UnknownInstallationAppTransport{
-		AppsTransport: tr,
-		AppClient:     appClient,
-		Owner:         owner,
-	})
+	return c.createGitHubClient(tr)
 }
 
 // NewClient creates a Github Client
@@ -215,12 +180,11 @@ func (c *Config) createGitHubClient(transport http.RoundTripper) (*Client, error
 	}, nil
 }
 
-// FindInstallationID returns installation ID based on this owner
-func (t *UnknownInstallationAppTransport) FindInstallationID(ctx context.Context, owner string) (int64, error) {
+func (c *Client) FindInstallationID(ctx context.Context, owner string) (int64, error) {
 	var installations []*github.Installation
 	opts := github.ListOptions{PerPage: 100}
 	for {
-		list, res, err := t.AppClient.Apps.ListInstallations(ctx, &opts)
+		list, res, err := c.Apps.ListInstallations(ctx, &opts)
 
 		if err != nil {
 			return 0, fmt.Errorf("failed to list installations: %w", err)
