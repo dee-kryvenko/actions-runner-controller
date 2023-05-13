@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -148,6 +149,8 @@ func (m *multiClient) GetClientFromSecret(ctx context.Context, githubConfigURL, 
 
 	var parsedAppInstallationID int64
 	if len(appInstallationID) <= 0 {
+		m.logger.V(10).Info("github_app_installation_id was not set - attempting to find installation id using app id and a key")
+
 		config, err := ParseGitHubConfigFromURL(githubConfigURL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse githubConfigURL: %w", err)
@@ -173,7 +176,10 @@ func (m *multiClient) GetClientFromSecret(ctx context.Context, githubConfigURL, 
 		if parsedAppInstallationID == 0 {
 			return nil, fmt.Errorf("app installation id was not provided and can't find it automatically: %w", err)
 		}
+
+		m.logger.V(10).Info("github_app_installation_id was automatically determined as %v", parsedAppInstallationID)
 	} else {
+		m.logger.V(10).Info("github_app_installation_id was set to %q", appInstallationID)
 		parsedAppInstallationID, err = strconv.ParseInt(appInstallationID, 10, 64)
 		if err != nil {
 			return nil, err
@@ -185,6 +191,8 @@ func (m *multiClient) GetClientFromSecret(ctx context.Context, githubConfigURL, 
 }
 
 func (m *multiClient) createAppJWT(privateKey string, appID int64) (string, error) {
+	m.logger.V(10).Info("creating JWT for appID=%v", appID)
+
 	signKey, err := jwt.ParseRSAPrivateKeyFromPEM([]byte(privateKey))
 	if err != nil {
 		return "", err
@@ -206,6 +214,8 @@ func (m *multiClient) createAppJWT(privateKey string, appID int64) (string, erro
 }
 
 func (m *multiClient) listAppInstallations(config *GitHubConfig, appToken string) ([]AppInstallation, error) {
+	m.logger.V(10).Info("listing installations for %s", config.ConfigURL.String())
+
 	url := config.GitHubAPIURL("/app/installations")
 
 	req, err := http.NewRequest("GET", url.String(), nil)
@@ -223,10 +233,26 @@ func (m *multiClient) listAppInstallations(config *GitHubConfig, appToken string
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		headers := make([]string, 0, len(resp.Header))
+		for name, values := range resp.Header {
+			for _, value := range values {
+				headers = append(headers, fmt.Sprintf("%v: %v", name, value))
+			}
+		}
+
+		return nil, fmt.Errorf("invalid response code: %v\nHeaders:\n%v\nBody:\n%v",
+			resp.StatusCode,
+			strings.Join(headers, "\n"),
+			string(body),
+		)
 	}
 
 	installations := []AppInstallation{}
