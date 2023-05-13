@@ -195,9 +195,17 @@ func (c *MultiGitHubClient) initClientForSecret(secret *corev1.Secret, dependent
 			conf.EnterpriseURL = c.githubClient.GithubBaseURL
 		}
 
-		cli, err := conf.NewClient()
-		if err != nil {
-			return nil, err
+		var cli *github.Client
+		if conf.AppInstallationID == 0 {
+			cli, err = conf.NewAppClient()
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			cli, err = conf.NewClient()
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		cliRef = savedClient{
