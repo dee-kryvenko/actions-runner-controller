@@ -32,9 +32,9 @@ type runnerOwnerRef struct {
 
 type secretRef struct {
 	ns, name string
-	// owner is optional - when the secret does not have installation id in it,
+	// appInstallationOwner is optional - when the secret does not have installation id in it,
 	// we need to differentiate clients initiated from the same shared secret for different installation owners
-	owner string
+	appInstallationOwner string
 }
 
 // savedClient is the each cache entry that contains the client for the specific set of credentials,
@@ -79,13 +79,13 @@ func NewMultiGitHubClient(client resourceReader, githubClient *github.Client) *M
 
 // Init sets up and return the *github.Client for the object.
 // In case the object (like RunnerDeployment) does not request a custom client, it returns the default client.
-func (c *MultiGitHubClient) InitForRunnerPod(ctx context.Context, pod *corev1.Pod, owner string) (*github.Client, error) {
+func (c *MultiGitHubClient) InitForRunnerPod(ctx context.Context, pod *corev1.Pod, appInstallationOwner string) (*github.Client, error) {
 	// These 3 default values are used only when the user created the pod directly, not via Runner, RunnerReplicaSet, RunnerDeploment, or RunnerSet resources.
 	ref := refFromRunnerPod(pod)
 	secretName := pod.Annotations[annotationKeyGitHubAPICredsSecret]
 
 	// kind can be any of Pod, Runner, RunnerReplicaSet, RunnerDeployment, or RunnerSet depending on which custom resource the user directly created.
-	return c.initClientWithSecretName(ctx, pod.Namespace, secretName, owner, ref)
+	return c.initClientWithSecretName(ctx, pod.Namespace, secretName, appInstallationOwner, ref)
 }
 
 // Init sets up and return the *github.Client for the object.
@@ -102,15 +102,15 @@ func (c *MultiGitHubClient) InitForRunner(ctx context.Context, r *v1alpha1.Runne
 		return nil, fmt.Errorf("referencing github api creds secret from owner in another namespace is not supported yet")
 	}
 
-	var owner string
+	var appInstallationOwner string
 	if len(r.Spec.Repository) > 0 {
-		owner = strings.Split(r.Spec.Repository, "/")[0]
+		appInstallationOwner = strings.Split(r.Spec.Repository, "/")[0]
 	} else {
-		owner = r.Spec.Organization
+		appInstallationOwner = r.Spec.Organization
 	}
 
 	// kind can be any of Runner, RunnerReplicaSet, or RunnerDeployment depending on which custom resource the user directly created.
-	return c.initClientWithSecretName(ctx, r.Namespace, secretName, owner, ref)
+	return c.initClientWithSecretName(ctx, r.Namespace, secretName, appInstallationOwner, ref)
 }
 
 // Init sets up and return the *github.Client for the object.
@@ -123,19 +123,19 @@ func (c *MultiGitHubClient) InitForRunnerSet(ctx context.Context, rs *v1alpha1.R
 		secretName = rs.Spec.GitHubAPICredentialsFrom.SecretRef.Name
 	}
 
-	var owner string
+	var appInstallationOwner string
 	if len(rs.Spec.Repository) > 0 {
-		owner = strings.Split(rs.Spec.Repository, "/")[0]
+		appInstallationOwner = strings.Split(rs.Spec.Repository, "/")[0]
 	} else {
-		owner = rs.Spec.Organization
+		appInstallationOwner = rs.Spec.Organization
 	}
 
-	return c.initClientWithSecretName(ctx, rs.Namespace, secretName, owner, ref)
+	return c.initClientWithSecretName(ctx, rs.Namespace, secretName, appInstallationOwner, ref)
 }
 
 // Init sets up and return the *github.Client for the object.
 // In case the object (like RunnerDeployment) does not request a custom client, it returns the default client.
-func (c *MultiGitHubClient) InitForHRA(ctx context.Context, hra *v1alpha1.HorizontalRunnerAutoscaler, owner string) (*github.Client, error) {
+func (c *MultiGitHubClient) InitForHRA(ctx context.Context, hra *v1alpha1.HorizontalRunnerAutoscaler, appInstallationOwner string) (*github.Client, error) {
 	ref := refFromHorizontalRunnerAutoscaler(hra)
 
 	var secretName string
@@ -143,12 +143,12 @@ func (c *MultiGitHubClient) InitForHRA(ctx context.Context, hra *v1alpha1.Horizo
 		secretName = hra.Spec.GitHubAPICredentialsFrom.SecretRef.Name
 	}
 
-	return c.initClientWithSecretName(ctx, hra.Namespace, secretName, owner, ref)
+	return c.initClientWithSecretName(ctx, hra.Namespace, secretName, appInstallationOwner, ref)
 }
 
-func (c *MultiGitHubClient) DeinitForRunnerPod(p *corev1.Pod, owner string) {
+func (c *MultiGitHubClient) DeinitForRunnerPod(p *corev1.Pod, appInstallationOwner string) {
 	secretName := p.Annotations[annotationKeyGitHubAPICredsSecret]
-	c.derefClient(p.Namespace, secretName, owner, refFromRunnerPod(p))
+	c.derefClient(p.Namespace, secretName, appInstallationOwner, refFromRunnerPod(p))
 }
 
 func (c *MultiGitHubClient) DeinitForRunner(r *v1alpha1.Runner) {
@@ -157,14 +157,14 @@ func (c *MultiGitHubClient) DeinitForRunner(r *v1alpha1.Runner) {
 		secretName = r.Spec.GitHubAPICredentialsFrom.SecretRef.Name
 	}
 
-	var owner string
+	var appInstallationOwner string
 	if len(r.Spec.Repository) > 0 {
-		owner = strings.Split(r.Spec.Repository, "/")[0]
+		appInstallationOwner = strings.Split(r.Spec.Repository, "/")[0]
 	} else {
-		owner = r.Spec.Organization
+		appInstallationOwner = r.Spec.Organization
 	}
 
-	c.derefClient(r.Namespace, secretName, owner, refFromRunner(r))
+	c.derefClient(r.Namespace, secretName, appInstallationOwner, refFromRunner(r))
 }
 
 func (c *MultiGitHubClient) DeinitForRunnerSet(rs *v1alpha1.RunnerSet) {
@@ -173,30 +173,30 @@ func (c *MultiGitHubClient) DeinitForRunnerSet(rs *v1alpha1.RunnerSet) {
 		secretName = rs.Spec.GitHubAPICredentialsFrom.SecretRef.Name
 	}
 
-	var owner string
+	var appInstallationOwner string
 	if len(rs.Spec.Repository) > 0 {
-		owner = strings.Split(rs.Spec.Repository, "/")[0]
+		appInstallationOwner = strings.Split(rs.Spec.Repository, "/")[0]
 	} else {
-		owner = rs.Spec.Organization
+		appInstallationOwner = rs.Spec.Organization
 	}
 
-	c.derefClient(rs.Namespace, secretName, owner, refFromRunnerSet(rs))
+	c.derefClient(rs.Namespace, secretName, appInstallationOwner, refFromRunnerSet(rs))
 }
 
-func (c *MultiGitHubClient) DeinitForHRA(hra *v1alpha1.HorizontalRunnerAutoscaler, owner string) {
+func (c *MultiGitHubClient) DeinitForHRA(hra *v1alpha1.HorizontalRunnerAutoscaler, appInstallationOwner string) {
 	var secretName string
 	if hra.Spec.GitHubAPICredentialsFrom != nil {
 		secretName = hra.Spec.GitHubAPICredentialsFrom.SecretRef.Name
 	}
 
-	c.derefClient(hra.Namespace, secretName, owner, refFromHorizontalRunnerAutoscaler(hra))
+	c.derefClient(hra.Namespace, secretName, appInstallationOwner, refFromHorizontalRunnerAutoscaler(hra))
 }
 
-func (c *MultiGitHubClient) initClientForSecret(secret *corev1.Secret, owner string, dependent *runnerOwnerRef) (*savedClient, error) {
+func (c *MultiGitHubClient) initClientForSecret(secret *corev1.Secret, appInstallationOwner string, dependent *runnerOwnerRef) (*savedClient, error) {
 	secRef := secretRef{
-		ns:    secret.Namespace,
-		name:  secret.Name,
-		owner: owner,
+		ns:                   secret.Namespace,
+		name:                 secret.Name,
+		appInstallationOwner: appInstallationOwner,
 	}
 
 	cliRef := c.clients[secRef]
@@ -213,6 +213,7 @@ func (c *MultiGitHubClient) initClientForSecret(secret *corev1.Secret, owner str
 	for _, k := range ks {
 		hash.Write(secret.Data[k])
 	}
+	hash.Write([]byte(appInstallationOwner))
 	hashStr := hex.EncodeToString(hash.Sum(nil))
 
 	if cliRef.hash != hashStr {
@@ -233,7 +234,7 @@ func (c *MultiGitHubClient) initClientForSecret(secret *corev1.Secret, owner str
 			if err != nil {
 				return nil, err
 			}
-			id, err := cli.FindInstallationID(context.TODO(), owner)
+			id, err := cli.FindInstallationID(context.TODO(), appInstallationOwner)
 			if err != nil {
 				return nil, err
 			}
@@ -261,7 +262,7 @@ func (c *MultiGitHubClient) initClientForSecret(secret *corev1.Secret, owner str
 	return &cliRef, nil
 }
 
-func (c *MultiGitHubClient) initClientWithSecretName(ctx context.Context, ns, secretName, owner string, runRef *runnerOwnerRef) (*github.Client, error) {
+func (c *MultiGitHubClient) initClientWithSecretName(ctx context.Context, ns, secretName, appInstallationOwner string, runRef *runnerOwnerRef) (*github.Client, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -270,9 +271,9 @@ func (c *MultiGitHubClient) initClientWithSecretName(ctx context.Context, ns, se
 	}
 
 	secRef := secretRef{
-		ns:    ns,
-		name:  secretName,
-		owner: owner,
+		ns:                   ns,
+		name:                 secretName,
+		appInstallationOwner: appInstallationOwner,
 	}
 
 	if _, ok := c.clients[secRef]; !ok {
@@ -284,7 +285,7 @@ func (c *MultiGitHubClient) initClientWithSecretName(ctx context.Context, ns, se
 		return nil, err
 	}
 
-	savedClient, err := c.initClientForSecret(&sec, owner, runRef)
+	savedClient, err := c.initClientForSecret(&sec, appInstallationOwner, runRef)
 	if err != nil {
 		return nil, err
 	}
@@ -292,14 +293,14 @@ func (c *MultiGitHubClient) initClientWithSecretName(ctx context.Context, ns, se
 	return savedClient.Client, nil
 }
 
-func (c *MultiGitHubClient) derefClient(ns, secretName, owner string, dependent *runnerOwnerRef) {
+func (c *MultiGitHubClient) derefClient(ns, secretName, appInstallationOwner string, dependent *runnerOwnerRef) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	secRef := secretRef{
-		ns:    ns,
-		name:  secretName,
-		owner: owner,
+		ns:                   ns,
+		name:                 secretName,
+		appInstallationOwner: appInstallationOwner,
 	}
 
 	if dependent != nil {
